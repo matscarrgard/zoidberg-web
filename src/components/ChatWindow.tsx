@@ -2,13 +2,17 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { ChatMessage, type Message } from './ChatMessage';
+import { useAuth } from '@/hooks/useAuth';
+
+const API_GATEWAY_URL = process.env.NEXT_PUBLIC_API_GATEWAY_URL || 'https://ge9r132tck.execute-api.us-west-2.amazonaws.com';
 
 export function ChatWindow() {
+  const { user, signOut, getAccessToken } = useAuth();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       role: 'assistant',
-      content: "Why not Zoidberg? 🦀\n\nI'm your claw-powered AI assistant. Ask me anything!",
+      content: "Why not Zoidberg? 🦀\n\nI'm your claw-powered AI assistant. Ask me anything — with these claws, I can handle it!",
       timestamp: new Date(),
     },
   ]);
@@ -42,29 +46,46 @@ export function ChatWindow() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/chat', {
+      const token = await getAccessToken();
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
+      const response = await fetch(`${API_GATEWAY_URL}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ message: trimmed, sessionId }),
       });
+
+      if (response.status === 401) {
+        throw new Error('Session expired. Please sign in again.');
+      }
+
+      if (!response.ok) {
+        throw new Error(`Request failed: ${response.status}`);
+      }
 
       const data = await response.json();
 
       const assistantMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: data.reply || data.error || 'Zoidberg is speechless! (V)(;,,;)(V)',
+        content: data.reply || data.message || data.error || 'Zoidberg is speechless! (V)(;,,;)(V)',
         timestamp: new Date(),
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-    } catch {
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Connection lost';
       setMessages((prev) => [
         ...prev,
         {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: '🦀 My claws seem to have lost connection. Please try again!',
+          content: `🦀 *The shame!* ${errorMessage}. Zoidberg will try again if you ask!`,
           timestamp: new Date(),
         },
       ]);
@@ -121,9 +142,17 @@ export function ChatWindow() {
             Send
           </button>
         </div>
-        <p className="text-center text-xs text-ocean-600 mt-2">
-          Why not Zoidberg? (V)(;,,;)(V)
-        </p>
+        <div className="flex justify-between items-center max-w-4xl mx-auto mt-2">
+          <p className="text-xs text-ocean-600">
+            Why not Zoidberg? (V)(;,,;)(V)
+          </p>
+          <button
+            onClick={signOut}
+            className="text-xs text-ocean-500 hover:text-ocean-300 transition-colors"
+          >
+            Sign out ({user?.username})
+          </button>
+        </div>
       </div>
     </div>
   );

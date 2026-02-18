@@ -1,6 +1,27 @@
+'use client';
+
+import { useAuth } from '@/hooks/useAuth';
 import { ChatWindow } from '@/components/ChatWindow';
+import { LoginForm } from '@/components/LoginForm';
 
 export default function Home() {
+  const { user, loading, error, signIn } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-ocean-950">
+        <div className="text-center">
+          <div className="text-5xl mb-4 animate-pulse">🦀</div>
+          <p className="text-ocean-400">Zoidberg is waking up...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginForm onSignIn={signIn} error={error} loading={loading} />;
+  }
+
   return (
     <main className="flex flex-col h-screen">
       {/* Header */}

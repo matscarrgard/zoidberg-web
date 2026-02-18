@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { AmplifyProvider } from '@/components/AmplifyProvider';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -13,7 +14,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen">{children}</body>
+      <body className="min-h-screen">
+        <AmplifyProvider>{children}</AmplifyProvider>
+      </body>
     </html>
   );
 }
