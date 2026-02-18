@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { ChatMessage, type Message } from './ChatMessage';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -18,17 +18,19 @@ export function ChatWindow() {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [streamingText, setStreamingText] = useState('');
   const [sessionId] = useState(() => `web-${crypto.randomUUID()}`);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, streamingText, scrollToBottom]);
 
   const sendMessage = async () => {
     const trimmed = input.trim();
@@ -44,6 +46,10 @@ export function ChatWindow() {
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
+    setStreamingText('');
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     try {
       const token = await getAccessToken();
@@ -51,7 +57,6 @@ export function ChatWindow() {
         throw new Error('Not authenticated');
       }
 
-      // OpenResponses API format
       const response = await fetch(`${API_GATEWAY_URL}/v1/responses`, {
         method: 'POST',
         headers: {
@@ -62,7 +67,9 @@ export function ChatWindow() {
           model: 'openclaw:main',
           input: trimmed,
           user: sessionId,
+          stream: true,
         }),
+        signal: controller.signal,
       });
 
       if (response.status === 401) {
@@ -74,33 +81,95 @@ export function ChatWindow() {
         throw new Error(`Request failed (${response.status}): ${errBody}`);
       }
 
-      const data = await response.json();
+      // Check if we got a streaming response
+      const contentType = response.headers.get('content-type') || '';
 
-      // Extract text from OpenResponses format
-      let replyText = 'Zoidberg is speechless! (V)(;,,;)(V)';
-      if (data.output) {
-        for (const item of data.output) {
-          if (item.type === 'message' && item.content) {
-            const texts = item.content
-              .filter((c: { type: string }) => c.type === 'output_text')
-              .map((c: { text: string }) => c.text);
-            if (texts.length > 0) {
-              replyText = texts.join('\n');
+      if (contentType.includes('text/event-stream')) {
+        // SSE streaming response — parse events
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('No response body');
+
+        const decoder = new TextDecoder();
+        let accumulated = '';
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          // Keep the last potentially incomplete line in buffer
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') continue;
+
+              try {
+                const event = JSON.parse(data);
+                if (event.type === 'response.output_text.delta' && event.delta) {
+                  accumulated += event.delta;
+                  setStreamingText(accumulated);
+                } else if (event.type === 'response.failed') {
+                  const errMsg = event.response?.error?.message || 'Response failed';
+                  throw new Error(errMsg);
+                }
+              } catch (e) {
+                // Skip malformed JSON lines (not the error we threw above)
+                if (e instanceof Error && e.message !== 'Response failed' && !e.message.startsWith('Response failed')) {
+                  continue;
+                }
+                throw e;
+              }
             }
           }
         }
+
+        // Finalize: add the complete message
+        const finalText = accumulated || 'Zoidberg is speechless! (V)(;,,;)(V)';
+        setStreamingText('');
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: finalText,
+            timestamp: new Date(),
+          },
+        ]);
+      } else {
+        // Non-streaming fallback (JSON response)
+        const data = await response.json();
+        let replyText = 'Zoidberg is speechless! (V)(;,,;)(V)';
+        if (data.output) {
+          for (const item of data.output) {
+            if (item.type === 'message' && item.content) {
+              const texts = item.content
+                .filter((c: { type: string }) => c.type === 'output_text')
+                .map((c: { text: string }) => c.text);
+              if (texts.length > 0) {
+                replyText = texts.join('\n');
+              }
+            }
+          }
+        }
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: replyText,
+            timestamp: new Date(),
+          },
+        ]);
       }
-
-      const assistantMessage: Message = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: replyText,
-        timestamp: new Date(),
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
+      if (controller.signal.aborted) return;
       const errorMessage = err instanceof Error ? err.message : 'Connection lost';
+      setStreamingText('');
       setMessages((prev) => [
         ...prev,
         {
@@ -111,7 +180,9 @@ export function ChatWindow() {
         },
       ]);
     } finally {
+      abortRef.current = null;
       setIsLoading(false);
+      setStreamingText('');
       inputRef.current?.focus();
     }
   };
@@ -130,6 +201,7 @@ export function ChatWindow() {
         {messages.map((msg) => (
           <ChatMessage key={msg.id} message={msg} />
         ))}
+        {/* Streaming message or loading indicator */}
         {isLoading && (
           <div className="flex items-start gap-3">
             <img
@@ -138,11 +210,15 @@ export function ChatWindow() {
               className="w-8 h-8 rounded-full flex-shrink-0 mt-1"
             />
             <div className="chat-bubble-assistant w-fit">
-              <div className="flex gap-1.5 items-center py-1">
-                <div className="w-2 h-2 bg-zoidberg-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-2 h-2 bg-zoidberg-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-2 h-2 bg-zoidberg-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-              </div>
+              {streamingText ? (
+                <p className="text-sm whitespace-pre-wrap">{streamingText}<span className="inline-block w-1.5 h-4 bg-zoidberg-400 ml-0.5 animate-pulse" /></p>
+              ) : (
+                <div className="flex gap-1.5 items-center py-1">
+                  <div className="w-2 h-2 bg-zoidberg-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <div className="w-2 h-2 bg-zoidberg-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <div className="w-2 h-2 bg-zoidberg-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </div>
+              )}
             </div>
           </div>
         )}
