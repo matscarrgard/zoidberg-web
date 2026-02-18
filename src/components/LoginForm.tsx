@@ -22,7 +22,11 @@ export function LoginForm({ onSignIn, error, loading }: LoginFormProps) {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="text-6xl mb-4">🦀</div>
+          <img
+            src="/zoidberg-avatar.jpg"
+            alt="Zoidberg"
+            className="w-20 h-20 rounded-full mx-auto mb-4 shadow-lg shadow-zoidberg-500/20"
+          />
           <h1 className="text-2xl font-bold text-white">Zoidberg</h1>
           <p className="text-ocean-400 mt-1">Your claw-powered AI assistant</p>
         </div>

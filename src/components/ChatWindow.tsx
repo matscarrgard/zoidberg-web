@@ -110,11 +110,18 @@ export function ChatWindow() {
           <ChatMessage key={msg.id} message={msg} />
         ))}
         {isLoading && (
-          <div className="chat-bubble-assistant w-fit">
-            <div className="flex gap-1.5 items-center py-1">
-              <div className="w-2 h-2 bg-zoidberg-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-              <div className="w-2 h-2 bg-zoidberg-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-              <div className="w-2 h-2 bg-zoidberg-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+          <div className="flex items-start gap-3">
+            <img
+              src="/zoidberg-avatar.jpg"
+              alt="Zoidberg"
+              className="w-8 h-8 rounded-full flex-shrink-0 mt-1"
+            />
+            <div className="chat-bubble-assistant w-fit">
+              <div className="flex gap-1.5 items-center py-1">
+                <div className="w-2 h-2 bg-zoidberg-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-2 h-2 bg-zoidberg-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-2 h-2 bg-zoidberg-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
             </div>
           </div>
         )}
