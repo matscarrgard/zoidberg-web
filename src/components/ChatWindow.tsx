@@ -18,7 +18,7 @@ export function ChatWindow() {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [sessionId] = useState(() => crypto.randomUUID());
+  const [sessionId] = useState(() => `web-${crypto.randomUUID()}`);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -51,13 +51,18 @@ export function ChatWindow() {
         throw new Error('Not authenticated');
       }
 
-      const response = await fetch(`${API_GATEWAY_URL}/chat`, {
+      // OpenResponses API format
+      const response = await fetch(`${API_GATEWAY_URL}/v1/responses`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ message: trimmed, sessionId }),
+        body: JSON.stringify({
+          model: 'openclaw:main',
+          input: trimmed,
+          user: sessionId,
+        }),
       });
 
       if (response.status === 401) {
@@ -65,15 +70,31 @@ export function ChatWindow() {
       }
 
       if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
+        const errBody = await response.text();
+        throw new Error(`Request failed (${response.status}): ${errBody}`);
       }
 
       const data = await response.json();
 
+      // Extract text from OpenResponses format
+      let replyText = 'Zoidberg is speechless! (V)(;,,;)(V)';
+      if (data.output) {
+        for (const item of data.output) {
+          if (item.type === 'message' && item.content) {
+            const texts = item.content
+              .filter((c: { type: string }) => c.type === 'output_text')
+              .map((c: { text: string }) => c.text);
+            if (texts.length > 0) {
+              replyText = texts.join('\n');
+            }
+          }
+        }
+      }
+
       const assistantMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: data.reply || data.message || data.error || 'Zoidberg is speechless! (V)(;,,;)(V)',
+        content: replyText,
         timestamp: new Date(),
       };
 
@@ -85,7 +106,7 @@ export function ChatWindow() {
         {
           id: crypto.randomUUID(),
           role: 'assistant',
-          content: `🦀 *The shame!* ${errorMessage}. Zoidberg will try again if you ask!`,
+          content: `🦀 *The shame!* ${errorMessage}`,
           timestamp: new Date(),
         },
       ]);
